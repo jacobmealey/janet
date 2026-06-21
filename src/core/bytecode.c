@@ -139,6 +139,8 @@ void janet_bytecode_remove_noops(JanetFuncDef *def) {
             case JOP_JUMP:
                 /* relative pc is in DS field of instruction */
                 old_jump_target = i + (((int32_t)instr) >> 8);
+                janet_assert(old_jump_target >= 0, "bounds");
+                janet_assert(old_jump_target < def->bytecode_length, "bounds");
                 new_jump_target = pc_map[old_jump_target];
                 instr += (uint32_t)(new_jump_target - old_jump_target + (i - j)) << 8;
                 break;
@@ -148,6 +150,8 @@ void janet_bytecode_remove_noops(JanetFuncDef *def) {
             case JOP_JUMP_IF_NOT_NIL:
                 /* relative pc is in ES field of instruction */
                 old_jump_target = i + (((int32_t)instr) >> 16);
+                janet_assert(old_jump_target >= 0, "bounds");
+                janet_assert(old_jump_target < def->bytecode_length, "bounds");
                 new_jump_target = pc_map[old_jump_target];
                 instr += (uint32_t)(new_jump_target - old_jump_target + (i - j)) << 16;
                 break;

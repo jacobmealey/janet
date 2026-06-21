@@ -29,6 +29,30 @@
 #include "emit.h"
 #endif
 
+static int bad_16bit_jump(int32_t lab1, int32_t lab2) {
+    if (lab2 - lab1 > INT16_MAX) return 1;
+    if (lab2 - lab1 < INT16_MIN) return 1;
+    return 0;
+}
+
+static void check_16bit_jump(JanetCompiler *c, int32_t lab1, int32_t lab2) {
+    if (bad_16bit_jump(lab1, lab2)) {
+        janetc_cerror(c, "bad 16-bit jump, too large");
+    }
+}
+
+static int bad_24bit_jump(int32_t lab1, int32_t lab2) {
+    if (lab2 - lab1 > 0xFFFFFF) return 1;
+    if (lab2 - lab1 < -0x1000000) return 1;
+    return 0;
+}
+
+static void check_24bit_jump(JanetCompiler *c, int32_t lab1, int32_t lab2) {
+    if (bad_24bit_jump(lab1, lab2)) {
+        janetc_cerror(c, "bad 24-bit jump, too large");
+    }
+}
+
 static JanetSlot janetc_quote(JanetFopts opts, int32_t argn, const Janet *argv) {
     if (argn != 1) {
         janetc_cerror(opts.compiler, "expected 1 argument to quote");
@@ -209,6 +233,8 @@ static int destructure(JanetCompiler *c,
                     int32_t label_loop_exit = janet_v_count(c->buffer);
 
                     /* avoid shifting negative numbers */
+                    check_16bit_jump(c, label_loop_cond_jump, label_loop_exit);
+                    check_24bit_jump(c, label_loop_start, label_loop_loop);
                     c->buffer[label_loop_cond_jump] |= (uint32_t)(label_loop_exit - label_loop_cond_jump) << 16;
                     c->buffer[label_loop_loop] |= (uint32_t)(label_loop_start - label_loop_loop) << 8;
 
@@ -696,8 +722,12 @@ static JanetSlot janetc_if(JanetFopts opts, int32_t argn, const Janet *argv) {
     /* Write jumps - only add jump lengths if jump actually emitted */
     labeld = janet_v_count(c->buffer);
     if (labeljr < labeld) {
+        check_16bit_jump(c, labeljr, labelr);
         c->buffer[labeljr] |= (labelr - labeljr) << 16;
-        if (!tail && labeljd < labeld) c->buffer[labeljd] |= (labeld - labeljd) << 8;
+        if (!tail && labeljd < labeld) {
+            check_24bit_jump(c, labeljd, labeld);
+            c->buffer[labeljd] |= (labeld - labeljd) << 8;
+        }
     }
 
     if (tail) target.flags |= JANET_SLOT_RETURNED;
@@ -938,12 +968,18 @@ static JanetSlot janetc_while(JanetFopts opts, int32_t argn, const Janet *argv) 
 
     /* Calculate jumps */
     labeld = janet_v_count(c->buffer);
-    if (!infinite) c->buffer[labelc] |= (uint32_t)(labeld - labelc) << 16;
+    if (!infinite) {
+        check_16bit_jump(c, labelc, labeld);
+        c->buffer[labelc] |= (uint32_t)(labeld - labelc) << 16;
+    }
+
+    check_24bit_jump(c, labeljt, labelwt);
     c->buffer[labeljt] |= (uint32_t)(labelwt - labeljt) << 8;
 
     /* Calculate breaks */
     for (int32_t i = labelwt; i < labeld; i++) {
         if (c->buffer[i] == (0x80 | JOP_JUMP)) {
+            check_24bit_jump(c, i, labeld);
             c->buffer[i] = JOP_JUMP | ((labeld - i) << 8);
         }
     }
