@@ -605,4 +605,8 @@
 (assert (zero? exit-code) "subprocess ran")
 (assert (= data "hi\nthere\n") "output is correct")
 
+# Error handling
+(assert-error "bad thread" (ev/thread in))
+(assert-error "bad thread 2" (ev/thread (fn [x y] x) 1))
+
 (end-suite)

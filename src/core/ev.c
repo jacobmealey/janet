@@ -2326,6 +2326,14 @@ void janet_ev_threaded_call(JanetThreadedSubroutine fp, JanetEVGenericMessage ar
 /* Default callback for janet_ev_threaded_await. */
 void janet_ev_default_threaded_callback(JanetEVGenericMessage return_value) {
     if (return_value.fiber == NULL) {
+        /* Clean up */
+        switch (return_value.tag) {
+            default:
+            case JANET_EV_TCTAG_STRINGF:
+            case JANET_EV_TCTAG_ERR_STRINGF:
+                janet_free(return_value.argp);
+                break;
+        }
         return;
     }
     if (janet_fiber_can_resume(return_value.fiber)) {
@@ -2340,7 +2348,6 @@ void janet_ev_default_threaded_callback(JanetEVGenericMessage return_value) {
             case JANET_EV_TCTAG_STRING:
             case JANET_EV_TCTAG_STRINGF:
                 janet_schedule(return_value.fiber, janet_cstringv((const char *) return_value.argp));
-                if (return_value.tag == JANET_EV_TCTAG_STRINGF) janet_free(return_value.argp);
                 break;
             case JANET_EV_TCTAG_KEYWORD:
                 janet_schedule(return_value.fiber, janet_ckeywordv((const char *) return_value.argp));
@@ -2348,7 +2355,6 @@ void janet_ev_default_threaded_callback(JanetEVGenericMessage return_value) {
             case JANET_EV_TCTAG_ERR_STRING:
             case JANET_EV_TCTAG_ERR_STRINGF:
                 janet_cancel(return_value.fiber, janet_cstringv((const char *) return_value.argp));
-                if (return_value.tag == JANET_EV_TCTAG_STRINGF) janet_free(return_value.argp);
                 break;
             case JANET_EV_TCTAG_ERR_KEYWORD:
                 janet_cancel(return_value.fiber, janet_ckeywordv((const char *) return_value.argp));
@@ -2357,6 +2363,14 @@ void janet_ev_default_threaded_callback(JanetEVGenericMessage return_value) {
                 janet_schedule(return_value.fiber, janet_wrap_boolean(return_value.argi));
                 break;
         }
+    }
+    /* Clean up */
+    switch (return_value.tag) {
+        default:
+        case JANET_EV_TCTAG_STRINGF:
+        case JANET_EV_TCTAG_ERR_STRINGF:
+            janet_free(return_value.argp);
+            break;
     }
     janet_gcunroot(janet_wrap_fiber(return_value.fiber));
 }
@@ -3054,6 +3068,7 @@ static JanetEVGenericMessage janet_go_thread_subr(JanetEVGenericMessage args) {
     const uint8_t *endbytes = nextbytes + buffer->count;
     uint32_t flags = args.tag;
     args.tag = 0;
+    args.argp = NULL;
     janet_init();
     janet_vm.sandbox_flags = (uint32_t) args.argi;
     JanetTryState tstate;
@@ -3109,7 +3124,7 @@ static JanetEVGenericMessage janet_go_thread_subr(JanetEVGenericMessage args) {
                 janet_panicf("expected function or fiber, got %v", fiberv);
             }
             JanetFunction *func = janet_unwrap_function(fiberv);
-            fiber = janet_fiber(func, 64, func->def->min_arity, &value);
+            fiber = janet_fiber(func, 64, func->def->min_arity ? 1 : 0, &value);
             if (fiber == NULL) {
                 janet_panicf("thread function must accept 0 or 1 arguments");
             }
@@ -3148,7 +3163,9 @@ static JanetEVGenericMessage janet_go_thread_subr(JanetEVGenericMessage args) {
             /* Make ev/thread call from parent thread error */
             if (janet_checktype(tstate.payload, JANET_STRING)) {
                 args.tag = JANET_EV_TCTAG_ERR_STRINGF;
-                args.argp = strdup((const char *) janet_unwrap_string(tstate.payload));
+                JanetString msg = janet_unwrap_string(tstate.payload);
+                args.argp = janet_malloc(janet_string_length(msg) + 1);
+                memcpy(args.argp, msg, janet_string_length(msg) + 1);
             } else {
                 args.tag = JANET_EV_TCTAG_ERR_STRING;
                 args.argp = "failed to start thread";

@@ -2,7 +2,9 @@
 #include <janet.h>
 
 /* Disable leak sanitizer */
-int __lsan_is_turned_off(void) { return 1; }
+int __lsan_is_turned_off(void) {
+    return 1;
+}
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
